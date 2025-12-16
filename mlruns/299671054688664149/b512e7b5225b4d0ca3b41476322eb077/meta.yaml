@@ -1,0 +1,14 @@
+artifact_uri: file:C:/Users/Moe/OneDrive/Desktop/projects/ahmed-deeplearning-proj/mlruns/299671054688664149/b512e7b5225b4d0ca3b41476322eb077/artifacts
+end_time: 1765647037100
+entry_point_name: ''
+experiment_id: '299671054688664149'
+lifecycle_stage: active
+run_id: b512e7b5225b4d0ca3b41476322eb077
+run_name: EarlyStopping-28epochs
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1765645597100
+status: 3
+tags: []
+user_id: Moe

@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  # Service API FastAPI
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    container_name: cifar10_api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../models:/app/models:ro
+      - ../mlruns:/app/mlruns
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    networks:
+      - cifar10_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Service Interface Streamlit
+  streamlit:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.streamlit
+    container_name: cifar10_streamlit
+    ports:
+      - "8501:8501"
+    volumes:
+      - ../models:/app/models:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      - api
+    restart: unless-stopped
+    networks:
+      - cifar10_network
+
+  # Service MLflow (optionnel)
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.8.0
+    container_name: cifar10_mlflow
+    ports:
+      - "5000:5000"
+    volumes:
+      - ../mlruns:/mlflow/mlruns
+    command: mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri /mlflow/mlruns
+    restart: unless-stopped
+    networks:
+      - cifar10_network
+
+networks:
+  cifar10_network:
+    driver: bridge

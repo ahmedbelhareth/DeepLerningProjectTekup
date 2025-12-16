@@ -1,0 +1,14 @@
+artifact_uri: file:C:/Users/Moe/OneDrive/Desktop/projects/ahmed-deeplearning-proj/mlruns/299671054688664149/9b425272067148d4adcc08f6f962c189/artifacts
+end_time: 1765290397098
+entry_point_name: ''
+experiment_id: '299671054688664149'
+lifecycle_stage: active
+run_id: 9b425272067148d4adcc08f6f962c189
+run_name: Scheduler-20epochs
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1765289197098
+status: 3
+tags: []
+user_id: Moe

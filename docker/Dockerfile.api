@@ -1,0 +1,49 @@
+# Dockerfile pour l'API FastAPI
+# Classification d'images CIFAR-10
+
+FROM python:3.10-slim
+
+# Métadonnées
+LABEL maintainer="Ahmed Belhareth"
+LABEL description="API de classification CIFAR-10 avec FastAPI"
+LABEL version="1.0.0"
+
+# Variables d'environnement
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Répertoire de travail
+WORKDIR /app
+
+# Installer les dépendances système
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgl1-mesa-glx \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copier les fichiers de requirements
+COPY requirements.txt .
+
+# Installer les dépendances Python
+RUN pip install --upgrade pip && \
+    pip install -r requirements.txt
+
+# Copier le code source
+COPY src/ ./src/
+COPY models/ ./models/
+
+# Créer les répertoires nécessaires
+RUN mkdir -p /app/mlruns /app/models
+
+# Exposer le port
+EXPOSE 8000
+
+# Commande de démarrage
+CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

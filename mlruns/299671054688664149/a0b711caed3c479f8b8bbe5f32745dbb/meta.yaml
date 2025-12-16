@@ -1,0 +1,14 @@
+artifact_uri: file:C:/Users/Moe/OneDrive/Desktop/projects/ahmed-deeplearning-proj/mlruns/299671054688664149/a0b711caed3c479f8b8bbe5f32745dbb/artifacts
+end_time: 1764951517099
+entry_point_name: ''
+experiment_id: '299671054688664149'
+lifecycle_stage: active
+run_id: a0b711caed3c479f8b8bbe5f32745dbb
+run_name: Pretrained-10epochs
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1764950797099
+status: 3
+tags: []
+user_id: Moe

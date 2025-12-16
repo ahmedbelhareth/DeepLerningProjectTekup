@@ -1,0 +1,54 @@
+# Dockerfile pour l'interface Streamlit
+# Classification d'images CIFAR-10
+
+FROM python:3.10-slim
+
+# Métadonnées
+LABEL maintainer="Ahmed Belhareth"
+LABEL description="Interface Streamlit pour la classification CIFAR-10"
+LABEL version="1.0.0"
+
+# Variables d'environnement
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Répertoire de travail
+WORKDIR /app
+
+# Installer les dépendances système
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgl1-mesa-glx \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copier les fichiers de requirements
+COPY requirements.txt .
+
+# Installer les dépendances Python
+RUN pip install --upgrade pip && \
+    pip install -r requirements.txt
+
+# Copier le code source
+COPY src/ ./src/
+COPY streamlit_app/ ./streamlit_app/
+COPY models/ ./models/
+
+# Créer les répertoires nécessaires
+RUN mkdir -p /app/models
+
+# Configuration Streamlit
+RUN mkdir -p ~/.streamlit
+RUN echo "[server]\nheadless = true\nport = 8501\nenableCORS = false\n" > ~/.streamlit/config.toml
+
+# Exposer le port
+EXPOSE 8501
+
+# Commande de démarrage
+CMD ["streamlit", "run", "streamlit_app/app.py", "--server.address", "0.0.0.0"]

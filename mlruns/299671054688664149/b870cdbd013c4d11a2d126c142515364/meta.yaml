@@ -1,0 +1,14 @@
+artifact_uri: file:C:/Users/Moe/OneDrive/Desktop/projects/ahmed-deeplearning-proj/mlruns/299671054688664149/b870cdbd013c4d11a2d126c142515364/artifacts
+end_time: 1765099357101
+entry_point_name: ''
+experiment_id: '299671054688664149'
+lifecycle_stage: active
+run_id: b870cdbd013c4d11a2d126c142515364
+run_name: Adam-15epochs
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1765098397101
+status: 3
+tags: []
+user_id: Moe
