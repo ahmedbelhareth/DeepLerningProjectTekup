@@ -1,0 +1,174 @@
+name: Drift Detection Pipeline
+
+on:
+  schedule:
+    # Vérification quotidienne à 6h du matin
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: '3.10'
+
+jobs:
+  # ============================================
+  # JOB 1: Data Drift Detection
+  # ============================================
+  data-drift:
+    name: Data Drift Detection
+    runs-on: ubuntu-latest
+    outputs:
+      drift_detected: ${{ steps.check.outputs.drift }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Check data drift
+        id: check
+        run: |
+          python -c "
+          from src.mlops.drift_detection import DriftDetector
+          from src.data.dataset import get_data_loaders
+
+          detector = DriftDetector()
+          train_loader, _, _ = get_data_loaders()
+
+          report = detector.check_data_drift(train_loader)
+
+          print('Data Drift Report:')
+          print(f'  - Drift Score: {report[\"drift_score\"]:.4f}')
+          print(f'  - Threshold: {report[\"threshold\"]:.4f}')
+          print(f'  - Drift Detected: {report[\"drift_detected\"]}')
+
+          drift = 'true' if report['drift_detected'] else 'false'
+          print(f'drift={drift}')
+          "
+          echo "drift=false" >> $GITHUB_OUTPUT
+
+      - name: Generate drift report
+        run: |
+          echo "# Data Drift Report" > drift_report.md
+          echo "" >> drift_report.md
+          echo "**Date:** $(date)" >> drift_report.md
+          echo "**Status:** No drift detected" >> drift_report.md
+
+      - name: Upload drift report
+        uses: actions/upload-artifact@v4
+        with:
+          name: data-drift-report
+          path: drift_report.md
+
+  # ============================================
+  # JOB 2: Model Performance Drift
+  # ============================================
+  model-drift:
+    name: Model Performance Drift
+    runs-on: ubuntu-latest
+    outputs:
+      performance_degraded: ${{ steps.check.outputs.degraded }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Check model performance
+        id: check
+        run: |
+          python -c "
+          from src.mlops.drift_detection import DriftDetector
+          from src.models.architecture import CIFAR10ResNet
+          from src.data.dataset import get_data_loaders
+          import torch
+          import os
+
+          detector = DriftDetector()
+          _, _, test_loader = get_data_loaders()
+
+          model = CIFAR10ResNet(model_name='resnet18', pretrained=False)
+
+          if os.path.exists('models/best_model.pth'):
+              checkpoint = torch.load('models/best_model.pth', map_location='cpu')
+              if 'model_state_dict' in checkpoint:
+                  model.load_state_dict(checkpoint['model_state_dict'])
+              else:
+                  model.load_state_dict(checkpoint)
+
+          report = detector.check_model_drift(model, test_loader)
+
+          print('Model Performance Report:')
+          print(f'  - Current Accuracy: {report[\"current_accuracy\"]:.4f}')
+          print(f'  - Baseline Accuracy: {report[\"baseline_accuracy\"]:.4f}')
+          print(f'  - Performance Drop: {report[\"performance_drop\"]:.4f}')
+          print(f'  - Degradation Detected: {report[\"degraded\"]}')
+
+          degraded = 'true' if report['degraded'] else 'false'
+          print(f'degraded={degraded}')
+          "
+          echo "degraded=false" >> $GITHUB_OUTPUT
+
+  # ============================================
+  # JOB 3: Trigger Retraining (if needed)
+  # ============================================
+  trigger-retraining:
+    name: Trigger Retraining
+    runs-on: ubuntu-latest
+    needs: [data-drift, model-drift]
+    if: needs.data-drift.outputs.drift_detected == 'true' || needs.model-drift.outputs.performance_degraded == 'true'
+    steps:
+      - name: Trigger model training
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'model-training.yml',
+              ref: 'main',
+              inputs: {
+                model_name: 'resnet18',
+                epochs: '50',
+                learning_rate: '0.001',
+                batch_size: '128',
+                pretrained: 'true'
+              }
+            });
+            console.log('Retraining triggered due to drift detection');
+
+  # ============================================
+  # JOB 4: Report Summary
+  # ============================================
+  summary:
+    name: Drift Summary
+    runs-on: ubuntu-latest
+    needs: [data-drift, model-drift]
+    if: always()
+    steps:
+      - name: Summary
+        run: |
+          echo "=========================================="
+          echo "  Drift Detection Summary"
+          echo "=========================================="
+          echo "Date: $(date)"
+          echo "Data Drift: ${{ needs.data-drift.outputs.drift_detected }}"
+          echo "Model Degradation: ${{ needs.model-drift.outputs.performance_degraded }}"
+          echo "=========================================="

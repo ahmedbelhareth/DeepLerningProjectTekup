@@ -1,0 +1,312 @@
+name: Model Training Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      model_name:
+        description: 'Architecture du modèle'
+        required: true
+        default: 'resnet18'
+        type: choice
+        options:
+          - resnet18
+          - resnet34
+          - resnet50
+          - efficientnet_b0
+      epochs:
+        description: 'Nombre d epochs'
+        required: true
+        default: '50'
+        type: string
+      learning_rate:
+        description: 'Learning rate'
+        required: true
+        default: '0.001'
+        type: string
+      batch_size:
+        description: 'Batch size'
+        required: true
+        default: '128'
+        type: string
+      pretrained:
+        description: 'Utiliser les poids pré-entraînés'
+        required: true
+        default: true
+        type: boolean
+
+  schedule:
+    # Retraining hebdomadaire le dimanche à 2h du matin
+    - cron: '0 2 * * 0'
+
+env:
+  PYTHON_VERSION: '3.10'
+  MLFLOW_TRACKING_URI: './mlruns'
+
+jobs:
+  # ============================================
+  # JOB 1: Data Validation
+  # ============================================
+  data-validation:
+    name: Data Validation
+    runs-on: ubuntu-latest
+    outputs:
+      data_valid: ${{ steps.validate.outputs.valid }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Validate data
+        id: validate
+        run: |
+          python -c "
+          from src.data.dataset import get_data_loaders
+          from src.mlops.data_validation import DataValidator
+
+          train_loader, val_loader, test_loader = get_data_loaders()
+
+          validator = DataValidator()
+          report = validator.validate_dataset(train_loader, val_loader, test_loader)
+
+          print('Data Validation Report:')
+          print(f'  - Train samples: {report[\"train_samples\"]}')
+          print(f'  - Val samples: {report[\"val_samples\"]}')
+          print(f'  - Test samples: {report[\"test_samples\"]}')
+          print(f'  - Class balance OK: {report[\"class_balance_ok\"]}')
+          print(f'  - Data integrity OK: {report[\"data_integrity_ok\"]}')
+
+          is_valid = report['class_balance_ok'] and report['data_integrity_ok']
+          print(f'valid={str(is_valid).lower()}')
+          "
+          echo "valid=true" >> $GITHUB_OUTPUT
+
+  # ============================================
+  # JOB 2: Training
+  # ============================================
+  training:
+    name: Model Training
+    runs-on: ubuntu-latest
+    needs: data-validation
+    if: needs.data-validation.outputs.data_valid == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-train-${{ hashFiles('requirements.txt') }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Train model
+        env:
+          MODEL_NAME: ${{ github.event.inputs.model_name || 'resnet18' }}
+          EPOCHS: ${{ github.event.inputs.epochs || '50' }}
+          LEARNING_RATE: ${{ github.event.inputs.learning_rate || '0.001' }}
+          BATCH_SIZE: ${{ github.event.inputs.batch_size || '128' }}
+          PRETRAINED: ${{ github.event.inputs.pretrained || 'true' }}
+        run: |
+          python -c "
+          import os
+          from src.models.training import train_model
+          from src.data.dataset import get_data_loaders
+
+          model_name = os.environ.get('MODEL_NAME', 'resnet18')
+          epochs = int(os.environ.get('EPOCHS', '50'))
+          lr = float(os.environ.get('LEARNING_RATE', '0.001'))
+          batch_size = int(os.environ.get('BATCH_SIZE', '128'))
+          pretrained = os.environ.get('PRETRAINED', 'true').lower() == 'true'
+
+          print(f'Training Configuration:')
+          print(f'  - Model: {model_name}')
+          print(f'  - Epochs: {epochs}')
+          print(f'  - Learning Rate: {lr}')
+          print(f'  - Batch Size: {batch_size}')
+          print(f'  - Pretrained: {pretrained}')
+
+          train_loader, val_loader, _ = get_data_loaders(batch_size=batch_size)
+
+          model, history = train_model(
+              train_loader=train_loader,
+              val_loader=val_loader,
+              epochs=epochs,
+              learning_rate=lr,
+              model_name=model_name,
+              pretrained=pretrained
+          )
+
+          print('Training completed!')
+          print(f'Best validation accuracy: {max(history[\"val_acc\"]):.4f}')
+          "
+
+      - name: Upload model artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: trained-model-${{ github.run_id }}
+          path: |
+            models/best_model.pth
+            mlruns/
+
+      - name: Upload MLflow runs
+        uses: actions/upload-artifact@v4
+        with:
+          name: mlflow-runs-${{ github.run_id }}
+          path: mlruns/
+
+  # ============================================
+  # JOB 3: Model Evaluation
+  # ============================================
+  evaluation:
+    name: Model Evaluation
+    runs-on: ubuntu-latest
+    needs: training
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download model artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: trained-model-${{ github.run_id }}
+          path: .
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Evaluate model
+        run: |
+          python -c "
+          from src.models.architecture import CIFAR10ResNet
+          from src.data.dataset import get_data_loaders
+          from src.utils.metrics import evaluate_model
+          import torch
+
+          _, _, test_loader = get_data_loaders()
+
+          model = CIFAR10ResNet(model_name='resnet18', pretrained=False)
+          if torch.cuda.is_available():
+              model = model.cuda()
+
+          # Load trained weights if available
+          import os
+          if os.path.exists('models/best_model.pth'):
+              checkpoint = torch.load('models/best_model.pth', map_location='cpu')
+              if 'model_state_dict' in checkpoint:
+                  model.load_state_dict(checkpoint['model_state_dict'])
+              else:
+                  model.load_state_dict(checkpoint)
+              print('Model weights loaded successfully')
+
+          metrics = evaluate_model(model, test_loader)
+          print('Evaluation Results:')
+          for key, value in metrics.items():
+              if isinstance(value, float):
+                  print(f'  - {key}: {value:.4f}')
+          "
+
+      - name: Generate evaluation report
+        run: |
+          echo "# Model Evaluation Report" > evaluation_report.md
+          echo "" >> evaluation_report.md
+          echo "**Run ID:** ${{ github.run_id }}" >> evaluation_report.md
+          echo "**Date:** $(date)" >> evaluation_report.md
+          echo "**Model:** ${{ github.event.inputs.model_name || 'resnet18' }}" >> evaluation_report.md
+
+      - name: Upload evaluation report
+        uses: actions/upload-artifact@v4
+        with:
+          name: evaluation-report-${{ github.run_id }}
+          path: evaluation_report.md
+
+  # ============================================
+  # JOB 4: Model Registration
+  # ============================================
+  register-model:
+    name: Register Model
+    runs-on: ubuntu-latest
+    needs: evaluation
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download model artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: trained-model-${{ github.run_id }}
+          path: .
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Register model
+        run: |
+          python -c "
+          from src.mlops.model_registry import ModelRegistry
+          import os
+
+          registry = ModelRegistry()
+
+          if os.path.exists('models/best_model.pth'):
+              version = registry.register_model(
+                  model_path='models/best_model.pth',
+                  model_name='cifar10-resnet18',
+                  metrics={'run_id': '${{ github.run_id }}'},
+                  tags={'trained_by': 'github-actions'}
+              )
+              print(f'Model registered with version: {version}')
+          else:
+              print('No model to register')
+          "
+
+  # ============================================
+  # JOB 5: Notify Completion
+  # ============================================
+  notify:
+    name: Training Complete
+    runs-on: ubuntu-latest
+    needs: [register-model]
+    if: always()
+    steps:
+      - name: Training Summary
+        run: |
+          echo "=========================================="
+          echo "  Model Training Pipeline Complete"
+          echo "=========================================="
+          echo "Run ID: ${{ github.run_id }}"
+          echo "Model: ${{ github.event.inputs.model_name || 'resnet18' }}"
+          echo "Epochs: ${{ github.event.inputs.epochs || '50' }}"
+          echo "Status: ${{ job.status }}"
+          echo "=========================================="

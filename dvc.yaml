@@ -1,0 +1,219 @@
+# DVC Pipeline Configuration
+# Data Version Control pour le versioning des données et modèles
+
+stages:
+  # Stage 1: Préparation des données
+  prepare_data:
+    cmd: python -m src.data.dataset --prepare
+    deps:
+      - src/data/dataset.py
+      - src/utils/config.py
+    outs:
+      - data/processed/train_stats.json:
+          cache: true
+    metrics:
+      - data/processed/data_stats.json:
+          cache: false
+
+  # Stage 2: Validation des données
+  validate_data:
+    cmd: python -c "
+      from src.mlops.data_validation import DataValidator
+      from src.data.dataset import get_data_loaders
+      import json
+
+      train_loader, val_loader, test_loader = get_data_loaders()
+      validator = DataValidator()
+      report = validator.validate_dataset(train_loader, val_loader, test_loader)
+
+      with open('data/processed/validation_report.json', 'w') as f:
+          json.dump(report, f, indent=2)
+      print('Data validation completed')
+      "
+    deps:
+      - src/mlops/data_validation.py
+      - src/data/dataset.py
+    outs:
+      - data/processed/validation_report.json:
+          cache: false
+
+  # Stage 3: Extraction des features
+  extract_features:
+    cmd: python -c "
+      from src.mlops.feature_store import FeatureStore
+      from src.data.dataset import get_data_loaders
+      import torch
+
+      store = FeatureStore()
+      train_loader, _, _ = get_data_loaders()
+
+      # Enregistrer le groupe de features
+      store.register_feature_group(
+          name='cifar10_image_features',
+          description='Features extraites des images CIFAR-10',
+          features=[
+              {'name': 'R_mean', 'type': 'float'},
+              {'name': 'G_mean', 'type': 'float'},
+              {'name': 'B_mean', 'type': 'float'},
+              {'name': 'global_std', 'type': 'float'}
+          ]
+      )
+
+      # Extraire les features pour un échantillon
+      for i, (images, labels) in enumerate(train_loader):
+          if i >= 10:  # Limiter pour la démo
+              break
+          for j, img in enumerate(images[:5]):
+              features = store.compute_image_features(img)
+              store.store_features('cifar10_image_features', f'sample_{i}_{j}', features)
+
+      print('Feature extraction completed')
+      "
+    deps:
+      - src/mlops/feature_store.py
+      - src/data/dataset.py
+    outs:
+      - feature_store/:
+          cache: true
+
+  # Stage 4: Entraînement du modèle
+  train:
+    cmd: python -c "
+      from src.models.training import train_model
+      from src.data.dataset import get_data_loaders
+      import json
+
+      train_loader, val_loader, _ = get_data_loaders()
+
+      model, history = train_model(
+          train_loader=train_loader,
+          val_loader=val_loader,
+          epochs=50,
+          model_name='resnet18',
+          pretrained=True
+      )
+
+      # Sauvegarder l'historique
+      with open('models/training_history.json', 'w') as f:
+          json.dump(history, f, indent=2)
+
+      print('Training completed')
+      "
+    deps:
+      - src/models/training.py
+      - src/models/architecture.py
+      - src/data/dataset.py
+      - data/processed/validation_report.json
+    params:
+      - src/utils/config.py:
+          - TRAINING_CONFIG.epochs
+          - TRAINING_CONFIG.learning_rate
+          - TRAINING_CONFIG.batch_size
+    outs:
+      - models/best_model.pth:
+          cache: true
+    metrics:
+      - models/training_history.json:
+          cache: false
+
+  # Stage 5: Évaluation du modèle
+  evaluate:
+    cmd: python -c "
+      from src.models.architecture import CIFAR10ResNet
+      from src.data.dataset import get_data_loaders
+      from src.utils.metrics import evaluate_model
+      import torch
+      import json
+
+      _, _, test_loader = get_data_loaders()
+
+      model = CIFAR10ResNet(model_name='resnet18', pretrained=False)
+      checkpoint = torch.load('models/best_model.pth', map_location='cpu')
+      if 'model_state_dict' in checkpoint:
+          model.load_state_dict(checkpoint['model_state_dict'])
+      else:
+          model.load_state_dict(checkpoint)
+
+      metrics = evaluate_model(model, test_loader)
+
+      with open('models/evaluation_metrics.json', 'w') as f:
+          json.dump(metrics, f, indent=2, default=float)
+
+      print(f'Evaluation: Accuracy={metrics[\"accuracy\"]:.4f}')
+      "
+    deps:
+      - models/best_model.pth
+      - src/models/architecture.py
+      - src/utils/metrics.py
+    metrics:
+      - models/evaluation_metrics.json:
+          cache: false
+
+  # Stage 6: Enregistrement du modèle
+  register:
+    cmd: python -c "
+      from src.mlops.model_registry import ModelRegistry
+      import json
+
+      registry = ModelRegistry()
+
+      # Charger les métriques
+      with open('models/evaluation_metrics.json', 'r') as f:
+          metrics = json.load(f)
+
+      version = registry.register_model(
+          model_path='models/best_model.pth',
+          model_name='cifar10-resnet18',
+          metrics=metrics,
+          tags={'pipeline': 'dvc', 'framework': 'pytorch'},
+          description='ResNet18 trained on CIFAR-10'
+      )
+
+      print(f'Model registered with version: {version}')
+      "
+    deps:
+      - models/best_model.pth
+      - models/evaluation_metrics.json
+      - src/mlops/model_registry.py
+    outs:
+      - model_registry/:
+          cache: true
+
+  # Stage 7: Export ONNX
+  export_onnx:
+    cmd: python -c "
+      from src.models.architecture import CIFAR10ResNet
+      from src.mlops.model_optimization import ModelOptimizer
+      import torch
+
+      model = CIFAR10ResNet(model_name='resnet18', pretrained=False)
+      checkpoint = torch.load('models/best_model.pth', map_location='cpu')
+      if 'model_state_dict' in checkpoint:
+          model.load_state_dict(checkpoint['model_state_dict'])
+      else:
+          model.load_state_dict(checkpoint)
+
+      optimizer = ModelOptimizer()
+      onnx_path = optimizer.export_onnx(model, output_path='models/model.onnx')
+      print(f'ONNX model exported: {onnx_path}')
+      "
+    deps:
+      - models/best_model.pth
+      - src/mlops/model_optimization.py
+    outs:
+      - models/model.onnx:
+          cache: true
+
+# Plots configuration pour la visualisation
+plots:
+  - models/training_history.json:
+      x: epoch
+      y:
+        train_loss: Train Loss
+        val_loss: Val Loss
+      title: Training Progress
+
+  - models/evaluation_metrics.json:
+      x: class
+      y: f1_score
+      title: Per-class F1 Score
