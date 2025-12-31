@@ -1,0 +1,6 @@
+artifact_location: file:///C:/Users/ahmed/Desktop/public servics/DeepLernig/projet-deep-learning/mlruns/661033794925298707
+creation_time: 1767090656823
+experiment_id: '661033794925298707'
+last_update_time: 1767090656823
+lifecycle_stage: active
+name: CIFAR10_Classification_TransferLearning

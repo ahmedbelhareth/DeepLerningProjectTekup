@@ -1,0 +1,30 @@
+{
+  "models": {
+    "demo-resnet18": {
+      "created_at": "2025-12-26T01:22:49.553666",
+      "versions": {
+        "1.0.0": {
+          "version": "1.0.0",
+          "created_at": "2025-12-26T01:22:49.553666",
+          "checksum": "ea9a5a08e7a359cedeb14d721ecde826",
+          "file_size_mb": 0.0020189285278320312,
+          "metrics": {
+            "accuracy": 0.87,
+            "f1_score": 0.865
+          },
+          "tags": {
+            "environment": "demo",
+            "framework": "pytorch"
+          },
+          "description": "Demo ResNet18 pour CIFAR-10",
+          "stage": "staging",
+          "model_path": "model_registry\\models\\demo-resnet18\\1.0.0\\model.pth"
+        }
+      },
+      "production_version": null,
+      "staging_version": "1.0.0"
+    }
+  },
+  "created_at": "2025-12-26T01:22:49.543481",
+  "last_updated": "2025-12-26T01:22:49.554774"
+}

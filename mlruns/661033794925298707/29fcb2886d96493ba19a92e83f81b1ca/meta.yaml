@@ -1,0 +1,14 @@
+artifact_uri: file:///C:/Users/ahmed/Desktop/public servics/DeepLernig/projet-deep-learning/mlruns/661033794925298707/29fcb2886d96493ba19a92e83f81b1ca/artifacts
+end_time: null
+entry_point_name: ''
+experiment_id: '661033794925298707'
+lifecycle_stage: active
+run_id: 29fcb2886d96493ba19a92e83f81b1ca
+run_name: transfer_learning_stl10_cifar10
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1767134184781
+status: 1
+tags: []
+user_id: ahmed

@@ -1,0 +1,10 @@
+artifact_location: file:///C:/Users/ahmed/Desktop/public servics/DeepLernig/projet-deep-learning/mlruns/661033794925298707/models/m-111d7d025cb94b85abdbe6d7b37e40a6/artifacts
+creation_timestamp: 1767149396364
+experiment_id: '661033794925298707'
+last_updated_timestamp: 1767149406740
+model_id: m-111d7d025cb94b85abdbe6d7b37e40a6
+model_type: null
+name: model_transfer_learning
+source_run_id: 5b696527bd4c41088a17cd8e6577f147
+status: 2
+status_message: null

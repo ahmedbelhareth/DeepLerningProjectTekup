@@ -1,0 +1,23 @@
+artifact_path: file:///C:/Users/ahmed/Desktop/public servics/DeepLernig/projet-deep-learning/mlruns/661033794925298707/models/m-ca7dcd65300f4998bdcea3d5bd7e6c3d/artifacts
+flavors:
+  python_function:
+    config:
+      device: null
+    data: data
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.pytorch
+    pickle_module_name: mlflow.pytorch.pickle_module
+    python_version: 3.12.4
+  pytorch:
+    code: null
+    model_data: data
+    pytorch_version: 2.9.1+cpu
+mlflow_version: 3.7.0
+model_id: m-ca7dcd65300f4998bdcea3d5bd7e6c3d
+model_size_bytes: 44811111
+model_uuid: m-ca7dcd65300f4998bdcea3d5bd7e6c3d
+prompts: null
+run_id: f19a4ee4fc1c459c97018f4c321fc6b7
+utc_time_created: '2025-12-30 11:46:18.333523'
