@@ -10,6 +10,16 @@
 
 ---
 
+## Evolutions du Projet
+
+| Version | Description | Nouveautés |
+|---------|-------------|------------|
+| **v1.0** | Base | ResNet-18, FastAPI, Streamlit |
+| **v2.0** | MLOps | Pipeline CI/CD (11 jobs), MLflow, Docker, Tests |
+| **v3.0** | Transfer Learning | STL-10 + CIFAR-10, MixUp, CutMix, Label Smoothing |
+
+---
+
 ## Table des Matières
 
 1. [Introduction et Objectif](#1-introduction-et-objectif)
@@ -26,6 +36,8 @@
 12. [Tests Unitaires](#12-tests-unitaires)
 13. [Guide d'Installation](#13-guide-dinstallation)
 14. [Résultats et Métriques](#14-résultats-et-métriques)
+15. [Transfer Learning (v3.0)](#15-transfer-learning-v30)
+16. [Pipeline CI/CD (v2.0)](#16-pipeline-cicd-v20)
 
 ---
 
@@ -856,6 +868,296 @@ CUDA_VISIBLE_DEVICES=0
 - [FastAPI Documentation](https://fastapi.tiangolo.com/)
 - [Streamlit Documentation](https://docs.streamlit.io/)
 - [MLflow Documentation](https://mlflow.org/docs/latest/)
+
+---
+
+## 15. Transfer Learning (v3.0)
+
+### 15.1 Concept et Motivation
+
+Le Transfer Learning permet d'améliorer les performances en pré-entraînant le modèle sur un dataset auxiliaire (STL-10) avant le fine-tuning sur CIFAR-10.
+
+### 15.2 Dataset STL-10
+
+| Caractéristique | Valeur |
+|-----------------|--------|
+| Images totales | 4,500 (train) |
+| Résolution originale | 96x96 pixels |
+| Résolution utilisée | 32x32 pixels (redimensionné) |
+| Classes | 9 (communes avec CIFAR-10) |
+
+**Classes STL-10 → CIFAR-10:**
+```python
+STL10_TO_CIFAR10 = {
+    0: 0,   # airplane
+    1: 2,   # bird
+    2: 1,   # car → automobile
+    3: 3,   # cat
+    4: 4,   # deer
+    5: 5,   # dog
+    6: 7,   # horse
+    7: 8,   # ship
+    8: 9    # truck
+}
+```
+
+### 15.3 Pipeline Transfer Learning
+
+```
+Phase 1: Pré-entraînement STL-10
+├── Dataset: 4,500 images (96x96 → 32x32)
+├── Epochs: 5
+├── Accuracy atteinte: 40.57%
+└── Durée: ~20 min
+
+    ↓
+
+Phase 2: Fine-tuning CIFAR-10
+├── Dataset: 50,000 images (32x32)
+├── Epochs: 15
+├── Accuracy atteinte: 64.52%
+└── Durée: ~84 min
+
+    ↓
+
+Test Final: 68.18% accuracy
+```
+
+### 15.4 Techniques d'Augmentation Avancées
+
+#### MixUp (alpha=0.2)
+```python
+def mixup_data(x, y, alpha=0.2):
+    """Mélange linéaire de deux images."""
+    lam = np.random.beta(alpha, alpha)
+    index = torch.randperm(x.size(0))
+    mixed_x = lam * x + (1 - lam) * x[index, :]
+    y_a, y_b = y, y[index]
+    return mixed_x, y_a, y_b, lam
+```
+
+#### CutMix (alpha=1.0)
+```python
+def cutmix_data(x, y, alpha=1.0):
+    """Découpe et colle une région d'une autre image."""
+    lam = np.random.beta(alpha, alpha)
+    # Calcul des coordonnées du rectangle
+    cut_rat = np.sqrt(1. - lam)
+    cut_w = int(W * cut_rat)
+    cut_h = int(H * cut_rat)
+    # Application du patch
+    x[:, :, bbx1:bbx2, bby1:bby2] = x[index, :, bbx1:bbx2, bby1:bby2]
+    return x, y_a, y_b, lam
+```
+
+#### Label Smoothing (0.1)
+```python
+criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
+```
+
+### 15.5 Hyperparamètres Transfer Learning
+
+```python
+# Configuration
+BATCH_SIZE = 128
+LEARNING_RATE = 0.001
+WEIGHT_DECAY = 0.05
+
+# Augmentation
+MIXUP_ALPHA = 0.2
+CUTMIX_ALPHA = 1.0
+LABEL_SMOOTHING = 0.1
+
+# Scheduler
+OneCycleLR(
+    optimizer,
+    max_lr=0.01,
+    steps_per_epoch=len(train_loader),
+    epochs=num_epochs,
+    pct_start=0.3
+)
+```
+
+### 15.6 Résultats Transfer Learning
+
+| Phase | Train Loss | Train Acc | Val Loss | Val Acc |
+|-------|------------|-----------|----------|---------|
+| STL-10 (E5) | 1.4532 | 46.73% | 1.6834 | 40.57% |
+| CIFAR-10 (E15) | 1.0231 | 62.84% | 0.9876 | 64.52% |
+| **Test Final** | - | - | - | **68.18%** |
+
+### 15.7 MLflow Tracking Transfer Learning
+
+**Métriques enregistrées:**
+- `phase1_train_loss`, `phase1_train_acc`
+- `phase1_val_loss`, `phase1_val_acc`
+- `phase2_train_loss`, `phase2_train_acc`
+- `phase2_val_loss`, `phase2_val_acc`
+- `test_loss`, `test_accuracy`
+- `total_training_time_seconds`
+
+**Paramètres enregistrés:**
+- `model_name`, `pretrained`
+- `num_epochs_stl10`, `num_epochs_cifar10`
+- `batch_size`, `learning_rate`, `weight_decay`
+- `mixup_alpha`, `cutmix_alpha`, `label_smoothing`
+
+---
+
+## 16. Pipeline CI/CD (v2.0)
+
+### 16.1 Vue d'Ensemble
+
+Pipeline GitHub Actions avec **11 jobs** pour automatiser la qualité du code, les tests, la validation des modèles et le déploiement.
+
+### 16.2 Architecture du Pipeline
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     GitHub Actions CI/CD                        │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ┌──────────────┐                                               │
+│  │ Code Quality │ ──────┐                                       │
+│  │   (Job 1)    │       │                                       │
+│  └──────────────┘       ▼                                       │
+│                    ┌──────────────┐                              │
+│                    │ Unit Tests   │                              │
+│                    │   (Job 2)    │                              │
+│                    └──────────────┘                              │
+│                          │                                       │
+│           ┌──────────────┼──────────────┬─────────────┐         │
+│           ▼              ▼              ▼             ▼         │
+│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌────────┐  │
+│  │ Integration  │ │    Model     │ │ TL Validation│ │ Train  │  │
+│  │   (Job 3)    │ │  Validation  │ │   (Job 6)    │ │ (7-8)  │  │
+│  └──────────────┘ │   (Job 4)    │ └──────────────┘ └────────┘  │
+│           │       └──────────────┘         │                    │
+│           └──────────────┬─────────────────┘                    │
+│                          ▼                                       │
+│                    ┌──────────────┐                              │
+│                    │ Build Docker │                              │
+│                    │   (Job 5)    │                              │
+│                    └──────────────┘                              │
+│                          │                                       │
+│           ┌──────────────┼──────────────┐                       │
+│           ▼              ▼              ▼                       │
+│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐             │
+│  │   Staging    │ │  Production  │ │    Notify    │             │
+│  │   (Job 9)    │ │  (Job 10)    │ │   (Job 11)   │             │
+│  └──────────────┘ └──────────────┘ └──────────────┘             │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 16.3 Détail des Jobs
+
+| Job | Nom | Description | Dépendances |
+|-----|-----|-------------|-------------|
+| 1 | Code Quality | Black, Flake8, Bandit, Safety | - |
+| 2 | Unit Tests | pytest avec coverage | Job 1 |
+| 3 | Integration Tests | Tests API | Job 2 |
+| 4 | Model Validation | Architecture validation | Job 2 |
+| 5 | Build Docker | Images API + Streamlit | Jobs 3, 4 |
+| 6 | TL Validation | MixUp, CutMix tests | Job 2 |
+| 7 | Train Model | Entraînement standard (manuel) | Job 1 |
+| 8 | Train TL | Entraînement Transfer Learning (manuel) | Job 1 |
+| 9 | Deploy Staging | Déploiement environnement de test | Job 5 |
+| 10 | Deploy Production | Déploiement environnement de prod | Job 5 |
+| 11 | Notify Status | Notification finale | Job 5 |
+
+### 16.4 Job 1: Code Quality
+
+```yaml
+code-quality:
+  runs-on: ubuntu-latest
+  steps:
+    - name: Run Black (formatting)
+      run: black --check --diff src/ tests/
+
+    - name: Run isort (imports)
+      run: isort --check-only --diff src/ tests/
+
+    - name: Run Flake8 (linting)
+      run: flake8 src/ tests/ --max-line-length=120
+
+    - name: Run Bandit (security)
+      run: bandit -r src/ -ll
+
+    - name: Run Safety (vulnerabilities)
+      run: safety check -r requirements.txt
+```
+
+### 16.5 Job 6: Transfer Learning Validation
+
+```yaml
+transfer-learning-validation:
+  runs-on: ubuntu-latest
+  needs: unit-tests
+  steps:
+    - name: Validate Transfer Learning module
+      run: |
+        python -c "
+        from src.models.transfer_learning import mixup_data, cutmix_data
+        import torch
+
+        x = torch.randn(4, 3, 32, 32)
+        y = torch.tensor([0, 1, 2, 3])
+
+        # Test MixUp
+        mixed_x, y_a, y_b, lam = mixup_data(x, y)
+        assert mixed_x.shape == x.shape
+
+        # Test CutMix
+        cut_x, y_a, y_b, lam = cutmix_data(x, y)
+        assert cut_x.shape == x.shape
+        "
+```
+
+### 16.6 Job 8: Train Transfer Learning
+
+```yaml
+train-transfer-learning:
+  runs-on: ubuntu-latest
+  if: github.event.inputs.run_training == 'true'
+  steps:
+    - name: Train Transfer Learning model
+      run: |
+        python -c "
+        from src.models.transfer_learning import transfer_learning_training
+
+        history = transfer_learning_training(
+            num_epochs_stl10=2,
+            num_epochs_cifar10=5,
+            batch_size=128,
+            use_mlflow=False
+        )
+        "
+```
+
+### 16.7 Déclencheurs
+
+```yaml
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      run_training:
+        description: 'Lancer le retraining du modèle'
+        required: false
+        default: 'false'
+        type: boolean
+```
+
+### 16.8 Environments
+
+| Environment | Branch | Description |
+|-------------|--------|-------------|
+| staging | develop | Tests et validation |
+| production | main | Production |
 
 ---
 
